@@ -1,0 +1,85 @@
+#this code was run on a singular chunk (for timing purposes) as part of the midterm.
+
+import os
+import pandas as pd
+from transformers import pipeline
+
+# Input and output directories
+input_dir = "usc-x-24-us-election-main"  # Replace with your main directory
+output_file = "tweets_with_sentiment.csv"  # Output consolidated CSV file
+
+# Load pre-trained sentiment analysis pipeline
+sentiment_analyzer = pipeline("sentiment-analysis")
+
+# Function to clean text
+def clean_text(text):
+    import re
+    # Remove URLs
+    text = re.sub(r"http\S+|www\S+|https\S+", "", text)
+    # Remove mentions and hashtags
+    text = re.sub(r"@\w+|#\w+", "", text)
+    # Remove special characters, emojis, and numbers
+    text = re.sub(r"[^\w\s]", "", text)
+    text = re.sub(r"\d+", "", text)
+    # Convert to lowercase and strip extra spaces
+    text = text.lower().strip()
+    return text
+
+# Function to process a single file
+def process_file(file_path):
+    processed_tweets = []
+    df = pd.read_csv(file_path, compression="gzip")  # Load entire file
+    for _, row in df.iterrows():
+        try:
+            # Skip non-English tweets or rows without text
+            if pd.isnull(row["text"]) or row.get("lang") != "en":
+                continue
+            
+            # Clean the text
+            clean_tweet_text = clean_text(row["text"])
+            
+            # Skip empty or very short tweets after cleaning
+            if len(clean_tweet_text) < 3:
+                continue
+            
+            # Analyze sentiment
+            sentiment = sentiment_analyzer(clean_tweet_text)[0]
+            
+            # Append processed tweet
+            processed_tweets.append({
+                "id": row["id"],
+                "text": clean_tweet_text,
+                "lang": row["lang"],
+                "date": row["date"],
+                "retweetCount": row.get("retweetCount", 0),
+                "likeCount": row.get("likeCount", 0),
+                "hashtags": row.get("hashtags", ""),
+                "mentionedUsers": row.get("mentionedUsers", ""),
+                "sentiment_label": sentiment["label"],  # e.g., POSITIVE, NEGATIVE
+                "sentiment_score": sentiment["score"],  # Confidence score
+            })
+        except Exception as e:
+            print(f"Error processing tweet: {e}")
+            continue
+    return processed_tweets
+
+# Iterate over subdirectories
+for subdir in os.listdir(input_dir):
+    subdir_path = os.path.join(input_dir, subdir)
+    if os.path.isdir(subdir_path):  # Check if it's a directory
+        print(f"Processing subdirectory: {subdir_path}")
+        
+        # Iterate over .csv.gz files in the subdirectory
+        for file in os.listdir(subdir_path):
+            if file.endswith(".csv.gz"):  # Process only .csv.gz files
+                file_path = os.path.join(subdir_path, file)
+                print(f"Processing file: {file_path}")
+                
+                # Process the entire file
+                processed = process_file(file_path)
+                
+                # Save processed data incrementally
+                pd.DataFrame(processed).to_csv(output_file, mode="a", index=False, header=not os.path.exists(output_file))
+                break
+        break
+        
